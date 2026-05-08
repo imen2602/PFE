@@ -29,8 +29,8 @@ COPY . .
 # Création du dossier d'uploads (au cas où il ne soit pas dans le contexte)
 RUN mkdir -p uploads
 
-EXPOSE 5000
+# Port 8080 : convention utilisée par Hostinger Docker Manager
+EXPOSE 8080
 
-# Gunicorn : serveur WSGI de production. 1 worker suffit pour la démo
-# (chaque worker recharge le modèle, donc plus = plus de RAM).
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "120", "app:app"]
+# Gunicorn écoute sur 8080 pour matcher le mapping de Hostinger.
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "120", "app:app"]

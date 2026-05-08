@@ -1,8 +1,20 @@
 services:
-  app:
+  recrutia:
     build: .
+    container_name: recrutia
     ports:
       - "8080:8080"
     restart: unless-stopped
+    volumes:
+      # Persiste les CV uploadés au-delà d'un redémarrage du conteneur
+      - ./uploads:/app/uploads
+      # Permet de modifier les données sans rebuild (optionnel)
+      - ./data:/app/data:ro
     environment:
-      - NODE_ENV=production
+      - FLASK_DEBUG=0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
