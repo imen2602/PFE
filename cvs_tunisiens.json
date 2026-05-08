@@ -1,0 +1,26 @@
+[
+  {
+    "nom": "Exemple Candidat 1",
+    "domaine": "Embarque",
+    "diplome": "Ingénieur en systèmes embarqués",
+    "universite": "ENIS Sfax",
+    "competences": ["c++", "stm32", "freertos", "do178", "trace32"],
+    "experience": "3 ans en développement firmware avionique"
+  },
+  {
+    "nom": "Exemple Candidat 2",
+    "domaine": "DataScience",
+    "diplome": "Master en data science",
+    "universite": "Faculté des Sciences de Tunis",
+    "competences": ["python", "pandas", "scikit", "machinelearning", "tensorflow"],
+    "experience": "2 ans en analyse de données et ML"
+  },
+  {
+    "nom": "Exemple Candidat 3",
+    "domaine": "FullStack",
+    "diplome": "Licence en informatique",
+    "universite": "ISI Ariana",
+    "competences": ["react", "node", "javascript", "mongodb", "docker"],
+    "experience": "1 an en développement web"
+  }
+]

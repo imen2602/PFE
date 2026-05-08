@@ -1,9 +1,8 @@
-import numpy as np
 import json
 import os
+import re
 import pandas as pd
 import faiss
-import re
 from sentence_transformers import SentenceTransformer
 from preprocessing import get_clean_pipeline, build_weighted_text, TECHNICAL_SKILLS_LIST
 
@@ -23,43 +22,58 @@ DOMAIN_KEYWORDS = {
     'Telecom': {'telecom', 'reseaux', 'cisco', '5g', 'fibre', 'optique'}
 }
 
+
 class MatchingEngine:
     """Moteur de matching intelligent utilisant BERT et la recherche vectorielle FAISS."""
-    
+
     def __init__(self, cv_path, jobs_path):
         """Initialise le moteur en chargeant les CV et les offres puis en créant les index de recherche."""
         self.cvs = []
         if os.path.exists(cv_path):
             with open(cv_path, 'r', encoding='utf-8') as f:
                 self.cvs = json.load(f)
+        else:
+            print(f"⚠️  Fichier CV introuvable : {cv_path}")
 
         self.jobs = []
         if os.path.exists(jobs_path):
             df = pd.read_csv(jobs_path)
             self.jobs = df.fillna("").to_dict('records')
+        else:
+            print(f"⚠️  Fichier offres introuvable : {jobs_path}")
 
-        # Création de l'index de recherche pour les CV (espace recruteur)
+        # Index de recherche pour les CV (espace recruteur)
         self.weighted_cv_texts = [
             get_clean_pipeline(build_weighted_text(cv)) for cv in self.cvs
         ]
-        emb = model.encode(self.weighted_cv_texts, show_progress_bar=False)
-        faiss.normalize_L2(emb)
-        self.cv_index = faiss.IndexFlatIP(emb.shape[1])
-        self.cv_index.add(emb.astype('float32'))
-        self.cv_embeddings = emb
+        if self.weighted_cv_texts:
+            emb = model.encode(self.weighted_cv_texts, show_progress_bar=False)
+            faiss.normalize_L2(emb)
+            self.cv_index = faiss.IndexFlatIP(emb.shape[1])
+            self.cv_index.add(emb.astype('float32'))
+        else:
+            self.cv_index = None
+            print("⚠️  Aucun CV chargé, l'espace recruteur retournera des résultats vides.")
 
-        # Création de l'index de recherche pour les offres (espace candidat)
+        # Index de recherche pour les offres (espace candidat)
         self.weighted_job_texts = []
         for job in self.jobs:
-            raw = f"{job['title']} {job['description']} {job['skills']}"
+            raw = f"{job.get('title', '')} {job.get('description', '')} {job.get('skills', '')}"
             self.weighted_job_texts.append(get_clean_pipeline(raw))
-        emb_j = model.encode(self.weighted_job_texts, show_progress_bar=False)
-        faiss.normalize_L2(emb_j)
-        self.job_index = faiss.IndexFlatIP(emb_j.shape[1])
-        self.job_index.add(emb_j.astype('float32'))
+        if self.weighted_job_texts:
+            emb_j = model.encode(self.weighted_job_texts, show_progress_bar=False)
+            faiss.normalize_L2(emb_j)
+            self.job_index = faiss.IndexFlatIP(emb_j.shape[1])
+            self.job_index.add(emb_j.astype('float32'))
+        else:
+            self.job_index = None
+            print("⚠️  Aucune offre chargée, l'espace candidat retournera des résultats vides.")
 
     def match_job_to_cvs(self, job_description):
         """Recherche les meilleurs CV correspondant à une description d'offre donnée."""
+        if self.cv_index is None or not self.cvs:
+            return []
+
         processed = get_clean_pipeline(job_description)
         q_emb = model.encode([processed], show_progress_bar=False)
         faiss.normalize_L2(q_emb)
@@ -67,10 +81,10 @@ class MatchingEngine:
 
         job_lower = job_description.lower()
         results = []
-        
+
         for idx, sem_score in zip(I[0], D[0]):
             sem = max(0.0, float(sem_score))
-            cv  = self.cvs[idx]
+            cv = self.cvs[idx]
 
             # Vérification de la cohérence du domaine
             cv_domain = cv.get('domaine')
@@ -80,15 +94,15 @@ class MatchingEngine:
                     continue
 
             # Vérification du niveau de diplôme pour les postes à responsabilité
-            job_title_lower = job_description.lower()
-            is_job_senior = any(w in job_title_lower for w in ['ingénieur', 'ingenieur', 'senior', 'manager', 'responsable', 'expert'])
-            is_cv_licence = 'licence' in cv['diplome'].lower()
+            is_job_senior = any(w in job_lower for w in ['ingénieur', 'ingenieur', 'senior', 'manager', 'responsable', 'expert'])
+            is_cv_licence = 'licence' in cv.get('diplome', '').lower()
             if is_job_senior and is_cv_licence:
                 continue
 
             # Calcul du score basé sur les mots-clés communs et la sémantique
-            matched = [s for s in cv['competences'] if s.lower() in job_lower]
-            skill_score = len(matched) / max(len(cv['competences']), 1)
+            competences = cv.get('competences', [])
+            matched = [s for s in competences if s.lower() in job_lower]
+            skill_score = len(matched) / max(len(competences), 1)
             final = 0.80 * sem + 0.20 * skill_score
             score = min(88.0, max(0.0, round(final * 100, 1)))
 
@@ -102,13 +116,16 @@ class MatchingEngine:
                 results.append({
                     "item": cv,
                     "score_global": score,
-                    "matched_skills": matched if matched else cv['competences'][:2]
+                    "matched_skills": matched if matched else competences[:2]
                 })
 
         return sorted(results, key=lambda x: x['score_global'], reverse=True)[:5]
 
     def match_cv_to_jobs(self, raw_cv_text):
         """Recherche les offres d'emploi les plus adaptées au profil d'un candidat."""
+        if self.job_index is None or not self.jobs:
+            return []
+
         processed = get_clean_pipeline(raw_cv_text)
         q_emb = model.encode([processed], show_progress_bar=False)
         faiss.normalize_L2(q_emb)
@@ -123,22 +140,22 @@ class MatchingEngine:
             sem = max(0.0, float(sem_score))
             job = self.jobs[idx]
             job_text = self.weighted_job_texts[idx]
-            
+
             # Filtrage par domaine
             job_domain = job.get('domaine')
             if job_domain in DOMAIN_KEYWORDS:
                 if not any(w in cv_tech_keywords for w in DOMAIN_KEYWORDS[job_domain]):
                     continue
-                
+
             # Filtrage par niveau d'étude
-            job_title_lower = job['title'].lower()
+            job_title_lower = job.get('title', '').lower()
             is_job_senior = any(w in job_title_lower for w in ['ingénieur', 'ingenieur', 'senior', 'manager', 'responsable', 'expert'])
             if is_job_senior and is_cv_licence_only:
                 continue
 
             # Calcul du score final
             job_tech = set(w for w in job_text.split() if w in TECHNICAL_SKILLS_LIST)
-            common   = cv_tech_keywords.intersection(job_tech)
+            common = cv_tech_keywords.intersection(job_tech)
             skill_score = len(common) / max(len(job_tech), 1) if job_tech else 0.0
 
             if skill_score > 0:
@@ -157,14 +174,24 @@ class MatchingEngine:
 
         return sorted(results, key=lambda x: x['score_global'], reverse=True)[:5]
 
+
 # Initialisation unique du moteur de recherche pour toute l'application
 ENGINE = None
+
 
 def get_engine():
     """Génère ou récupère l'instance unique du moteur de matching."""
     global ENGINE
     if ENGINE is None:
-        cv_p  = r'C:\Users\Chaima Abdelli\Desktop\PFE CODE\data\cvs_tunisiens.json'
-        job_p = r'C:\Users\Chaima Abdelli\Desktop\PFE CODE\data\job_descriptions.csv'
+        # Chemins relatifs au fichier matcher.py, surchargeable via variables d'environnement
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        cv_p = os.environ.get(
+            'CV_DATA_PATH',
+            os.path.join(BASE_DIR, 'data', 'cvs_tunisiens.json')
+        )
+        job_p = os.environ.get(
+            'JOB_DATA_PATH',
+            os.path.join(BASE_DIR, 'data', 'job_descriptions.csv')
+        )
         ENGINE = MatchingEngine(cv_p, job_p)
     return ENGINE

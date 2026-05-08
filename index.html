@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RecrutIA — Plateforme de matching intelligent</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            background: #f5f7fa;
+            color: #1a202c;
+        }
+        header {
+            background: #2d3748;
+            color: white;
+            padding: 1.5rem 2rem;
+        }
+        header h1 { margin: 0; font-size: 1.5rem; }
+        header p { margin: 0.25rem 0 0; opacity: 0.7; font-size: 0.9rem; }
+        main {
+            max-width: 900px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .card h2 { margin-top: 0; font-size: 1.1rem; }
+        label { display: block; margin: 0.75rem 0 0.25rem; font-size: 0.9rem; font-weight: 500; }
+        input[type=file], textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+        textarea { min-height: 120px; resize: vertical; }
+        button {
+            margin-top: 1rem;
+            padding: 0.6rem 1.2rem;
+            background: #3182ce;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover { background: #2c5282; }
+        button:disabled { background: #a0aec0; cursor: not-allowed; }
+        .results {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        .result-item {
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+            background: #edf2f7;
+            border-radius: 4px;
+            border-left: 3px solid #3182ce;
+        }
+        .score {
+            display: inline-block;
+            background: #3182ce;
+            color: white;
+            padding: 0.1rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .error { color: #c53030; font-size: 0.9rem; margin-top: 0.5rem; }
+        @media (max-width: 700px) { main { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>RecrutIA</h1>
+        <p>Plateforme de matching intelligent CV/Offres — BERT multilingue + FAISS</p>
+    </header>
+    <main>
+        <section class="card">
+            <h2>Espace candidat</h2>
+            <p style="font-size:0.9rem;color:#718096;">Téléchargez votre CV (PDF) pour découvrir les offres adaptées.</p>
+            <label for="cv">Fichier CV (PDF, max 5 Mo)</label>
+            <input type="file" id="cv" accept="application/pdf">
+            <button id="btn-candidate">Trouver des offres</button>
+            <div id="candidate-results" class="results"></div>
+        </section>
+
+        <section class="card">
+            <h2>Espace recruteur</h2>
+            <p style="font-size:0.9rem;color:#718096;">Décrivez le poste pour identifier les meilleurs candidats.</p>
+            <label for="job">Description du poste</label>
+            <textarea id="job" placeholder="Ex : Ingénieur firmware STM32, expérience avec FreeRTOS..."></textarea>
+            <button id="btn-recruiter">Trouver des CV</button>
+            <div id="recruiter-results" class="results"></div>
+        </section>
+    </main>
+
+    <script>
+        function renderResults(container, results, label) {
+            if (!results || results.length === 0) {
+                container.innerHTML = '<div class="error">Aucun résultat trouvé.</div>';
+                return;
+            }
+            container.innerHTML = results.map(r => {
+                const item = r.item;
+                const title = item.title || item.nom || item.diplome || 'Résultat';
+                const skills = (r.matched_skills || []).join(', ');
+                return `<div class="result-item">
+                    <div><strong>${title}</strong> <span class="score">${r.score_global}%</span></div>
+                    ${skills ? `<div style="margin-top:0.25rem;color:#4a5568;">Compétences : ${skills}</div>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        document.getElementById('btn-candidate').addEventListener('click', async () => {
+            const fileInput = document.getElementById('cv');
+            const container = document.getElementById('candidate-results');
+            if (!fileInput.files[0]) {
+                container.innerHTML = '<div class="error">Veuillez sélectionner un fichier PDF.</div>';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('cv_file', fileInput.files[0]);
+            container.innerHTML = 'Analyse en cours...';
+            try {
+                const res = await fetch('/api/candidate', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.error) container.innerHTML = `<div class="error">${data.error}</div>`;
+                else renderResults(container, data.results, 'offre');
+            } catch (e) {
+                container.innerHTML = `<div class="error">Erreur réseau : ${e.message}</div>`;
+            }
+        });
+
+        document.getElementById('btn-recruiter').addEventListener('click', async () => {
+            const desc = document.getElementById('job').value.trim();
+            const container = document.getElementById('recruiter-results');
+            if (!desc) {
+                container.innerHTML = '<div class="error">Veuillez décrire le poste.</div>';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('job_description', desc);
+            container.innerHTML = 'Recherche en cours...';
+            try {
+                const res = await fetch('/api/recruiter', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.error) container.innerHTML = `<div class="error">${data.error}</div>`;
+                else renderResults(container, data.results, 'CV');
+            } catch (e) {
+                container.innerHTML = `<div class="error">Erreur réseau : ${e.message}</div>`;
+            }
+        });
+    </script>
+</body>
+</html>

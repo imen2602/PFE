@@ -1,9 +1,11 @@
-flask
-pymupdf
-sentence-transformers
-faiss-cpu
-spacy
-langdetect
-pandas
-scikit-learn
-numpy
+# Note : torch CPU-only est installé séparément dans le Dockerfile
+# pour éviter les ~2.5 Go de bibliothèques NVIDIA inutiles.
+
+flask==3.0.3
+gunicorn==22.0.0
+pymupdf==1.24.10
+sentence-transformers==3.0.1
+faiss-cpu==1.8.0
+pandas==2.2.2
+scikit-learn==1.5.2
+numpy==1.26.4
